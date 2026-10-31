@@ -1,29 +1,48 @@
 import express from 'express';
 import { MongoClient } from 'mongodb';
-import 'dotenv/config'
+import 'dotenv/config';
 
-const app = express()
-const port = 5000
+const app = express();
+const port = 5000;
 
-
+app.use(express.json());
 const client = new MongoClient(process.env.MONGODB_URL);
-
-export async function connectToMongoDB() {
+let eventsCollection;
+async function connectToMongoDB() {
   try {
     await client.connect();
-    console.log("You successfully connected to MongoDB!");
-    return client;
+    const database = client.db('event-management');
+    eventsCollection = database.collection('events');
+    console.log('Successfully connected to MongoDB!');
   } catch (err) {
-    console.dir(err);
+    console.error(err);
   }
 }
 
-connectToMongoDB()
+app.post('/event-management', async (req, res) => {
+  try {
+    const event = req.body;
+    const result = await eventsCollection.insertOne(event);
+    res.send({
+      message: 'Event added successfully!',
+      insertedId: result.insertedId
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: 'Something went wrong' });
+  }
+});
 
 app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+  res.send('Hello World!');
+});
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+async function startServer() {
+  await connectToMongoDB();
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+startServer();
