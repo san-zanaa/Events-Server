@@ -2,6 +2,8 @@ import express from 'express';
 import { MongoClient } from 'mongodb';
 import 'dotenv/config';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 
 const app = express();
@@ -12,6 +14,10 @@ app.use(cors({
 }));
 
 app.use(express.json());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const client = new MongoClient(process.env.MONGODB_URL);
 let eventsCollection;
 async function connectToMongoDB() {
