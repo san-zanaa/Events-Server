@@ -45,7 +45,10 @@ async function connectToMongoDB() {
 }
 app.post('/create-event', async (req, res) => {
   try {
-    const event = req.body;
+    const event = {
+      ...req.body,
+      volunteerCount: 0
+    };
     const result = await eventsCollection.insertOne(event);
 
     res.send({
@@ -72,7 +75,7 @@ app.get('/events', async (req, res) => {
 });
 
 
-app.post('/join-event', async (req, res) => {
+app.post('/join-events', async (req, res) => {
   try {
     const { eventId, userEmail } = req.body;
 
@@ -185,7 +188,7 @@ app.get('/my-events/:email', async (req, res) => {
   }
 });
 
-// Delete event
+
 app.delete('/delete-event/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -195,12 +198,16 @@ app.delete('/delete-event/:id', async (req, res) => {
     }
 
     const result = await eventsCollection.deleteOne({
-      _id: new ObjectId(id)
+      _id: eventId
     });
 
     if (result.deletedCount === 0) {
       return res.status(404).send({ message: 'Event not found' });
     }
+
+    await joinedEventsCollection.deleteMany({
+      eventId: eventId
+    });
 
     res.send({ message: 'Event deleted successfully' });
   } catch (err) {
