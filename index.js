@@ -47,11 +47,19 @@ app.post('/create-event', async (req, res) => {
   try {
     const event = {
       ...req.body,
+      organizerEmail: req.body.organizerEmail?.trim().toLowerCase(),
       volunteerCount: 0
-    };
+    }
+
+    if (!event.organizerEmail) {
+      return res.status(400).send({
+        message: 'Organizer email is required'
+      });
+    }
+
     const result = await eventsCollection.insertOne(event);
 
-    res.send({
+    res.status(201).send({
       message: 'Event added successfully!',
       insertedId: result.insertedId
     });
@@ -60,7 +68,7 @@ app.post('/create-event', async (req, res) => {
     console.error(err);
     res.status(500).send({
       message: 'Something went wrong'
-    });
+    })
   }
 });
 
@@ -87,7 +95,6 @@ app.post('/join-events', async (req, res) => {
 
     const email = userEmail.trim().toLowerCase();
     const objectEventId = new ObjectId(eventId);
-
     const event = await eventsCollection.findOne({
       _id: objectEventId
     });
@@ -139,6 +146,7 @@ app.post('/join-events', async (req, res) => {
   }
 });
 
+
 app.get('/joined-events/:email', async (req, res) => {
   try {
     const email = req.params.email.trim().toLowerCase();
@@ -176,7 +184,6 @@ app.get('/joined-events/:email', async (req, res) => {
 app.get('/my-events/:email', async (req, res) => {
   try {
     const email = req.params.email.trim().toLowerCase();
-
     const events = await eventsCollection
       .find({ organizerEmail: email })
       .toArray();
@@ -189,30 +196,96 @@ app.get('/my-events/:email', async (req, res) => {
 });
 
 
-app.delete('/delete-event/:id', async (req, res) => {
+app.put('/update-event/:id', async (req, res) => {
   try {
-    const id = req.params.id;
+    const { id } = req.params;
+    const { organizerEmail, ...updatedData } = req.body;
 
     if (!ObjectId.isValid(id)) {
-      return res.status(400).send({ message: 'Invalid event ID' });
+      return res.status(400).send({
+        message: 'Invalid event ID'
+      })
     }
 
+    if (!organizerEmail) {
+      return res.status(400).send({
+        message: 'Organizer email is required'
+      })
+    }
+
+    const eventId = new ObjectId(id);
+    const email = organizerEmail.trim().toLowerCase();
+    const result = await eventsCollection.updateOne(
+      {
+        _id: eventId,
+        organizerEmail: email
+      },
+      {
+        $set: updatedData
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        message: 'Event not found or you are not allowed to update it'
+      });
+    }
+
+    res.send({
+      message: 'Event updated successfully!'
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({
+      message: 'Failed to update event'
+    });
+  }
+});
+
+
+app.delete('/delete-event/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const email = req.query.email?.toString().trim().toLowerCase();
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        message: 'Invalid event ID'
+      });
+    }
+
+    if (!email) {
+      return res.status(400).send({
+        message: 'Organizer email is required'
+      });
+    }
+
+    const eventId = new ObjectId(id);
     const result = await eventsCollection.deleteOne({
-      _id: eventId
+      _id: eventId,
+      organizerEmail: email
     });
 
     if (result.deletedCount === 0) {
-      return res.status(404).send({ message: 'Event not found' });
+      return res.status(404).send({
+        message: 'Event not found or you are not allowed to delete it'
+      });
     }
 
     await joinedEventsCollection.deleteMany({
       eventId: eventId
     });
 
-    res.send({ message: 'Event deleted successfully' });
+    res.send({
+      message: 'Event deleted successfully!'
+    });
+
   } catch (err) {
     console.error(err);
-    res.status(500).send({ message: 'Failed to delete event' });
+    res.status(500).send({
+      message: 'Failed to delete event'
+    });
   }
 });
 
