@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 5000;
 
 app.use(cors({
   origin: process.env.CLIENT_URL,
@@ -16,6 +16,17 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(async (req, res, next) => {
+    try {
+        await connectToMongoDB();
+        next();
+    } catch (error) {
+        console.error('MongoDB Connection Error:', error);
+        res.status(500).send({
+            message: 'Database connection failed'
+        });
+    }
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,25 +41,38 @@ const client = new MongoClient(process.env.MONGODB_URL);
 
 let eventsCollection;
 let joinedEventsCollection;
+let connectionPromise;
 
 async function connectToMongoDB() {
-  await client.connect();
-  const database = client.db('event-management');
+    if (!connectionPromise) {
+        connectionPromise = (async () => {
+            await client.connect();
 
-  eventsCollection = database.collection('events');
-  joinedEventsCollection = database.collection('joinedEvents');
+            const database = client.db('event-management');
 
-  await joinedEventsCollection.createIndex(
-    { userEmail: 1, eventId: 1 },
-    { unique: true }
-  );
+            eventsCollection = database.collection('events');
+            joinedEventsCollection = database.collection('joinedEvents');
 
-  console.log('Successfully connected to MongoDB!');
+            await joinedEventsCollection.createIndex(
+                { userEmail: 1, eventId: 1 },
+                { unique: true }
+            );
+
+            console.log('Successfully connected to MongoDB!');
+        })().catch((error) => {
+            connectionPromise = null;
+            throw error;
+        });
+    }
+
+    return connectionPromise;
 }
-
-const AUTH_BASE_URL = ( process.env.AUTH_BASE_URL).replace(/\/$/, '');
+const AUTH_BASE_URL = process.env.AUTH_BASE_URL?.replace(/\/$/, '');
+if (!AUTH_BASE_URL) {
+    throw new Error('AUTH_BASE_URL is missing');
+}
 const JWKS = createRemoteJWKSet(
-  new URL(`${AUTH_BASE_URL}/api/auth/jwks`)
+    new URL(`${AUTH_BASE_URL}/api/auth/jwks`)
 );
 
 const verifyApi = async (req, res, next) => {
@@ -412,17 +436,19 @@ app.get('/', (req, res) => {
 });
 
 async function startServer() {
-  try {
-    await connectToMongoDB();
-    app.listen(port, () => {
-      console.log(`Server running on http://localhost:${port}`);
-    });
-  } catch (error) {
-    console.error('Server startup failed:', error);
-    process.exit(1);
-  }
+    try {
+        await connectToMongoDB();
+        app.listen(port, () => {
+            console.log(`Server running on http://localhost:${port}`);
+        });
+    } catch (error) {
+        console.error('Server startup failed:', error);
+        process.exit(1);
+    }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+    startServer();
+}
 
-export default app
+export default app;
