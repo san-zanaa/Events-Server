@@ -137,7 +137,8 @@ app.get('/events', async (req, res) => {
 
     res.status(500).send({
       message: 'Failed to get events',
-    });
+    })
+
   }
 });
 
@@ -178,7 +179,7 @@ app.post('/create-event', verifyApi, async (req, res) => {
       message: 'Failed to create event',
     });
   }
-});
+})
 
 app.post('/join-events', verifyApi, async (req, res) => {
   try {
@@ -188,7 +189,7 @@ app.post('/join-events', verifyApi, async (req, res) => {
     if (!eventId || !ObjectId.isValid(eventId)) {
       return res.status(400).send({
         message: 'Valid event ID is required',
-      });
+      })
     }
 
     const objectEventId = new ObjectId(eventId);
@@ -210,14 +211,14 @@ app.post('/join-events', verifyApi, async (req, res) => {
     if (alreadyJoined) {
       return res.status(409).send({
         message: 'You have already joined this event',
-      });
+      })
     }
 
     await joinedEventsCollection.insertOne({
       userEmail: email,
       eventId: objectEventId,
       joinedAt: new Date(),
-    });
+    })
 
     await eventsCollection.updateOne(
       { _id: objectEventId },
@@ -241,7 +242,7 @@ app.post('/join-events', verifyApi, async (req, res) => {
       message: 'Failed to join event',
     });
   }
-});
+})
 
 app.get('/joined-events', verifyApi, async (req, res) => {
   try {
@@ -264,7 +265,7 @@ app.get('/joined-events', verifyApi, async (req, res) => {
       return {
         ...event,
         joinedAt: joinedRecord?.joinedAt,
-      };
+      }
     });
 
     res.send(joinedEvents);
