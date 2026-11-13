@@ -9,23 +9,24 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 const app = express();
 const port = process.env.PORT || 5000;
 
+
 const allowedOrigins = [
-  process.env.CLIENT_URL,
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-].filter(Boolean).map(origin => origin.replace(/\/$/, ''));
+    process.env.CLIENT_URL,
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+].filter(Boolean).map(origin => origin.replace(/\/$/, ""));
 
 app.use(cors({
-  origin(origin, callback) {
-    // Allow requests with no Origin header (server-to-server, curl, same-origin)
-    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
-      return callback(null, true);
-    }
-    callback(null, false);
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
 }));
+
 
 app.use(express.json());
 app.use(async (req, res, next) => {
@@ -57,11 +58,6 @@ let eventsCollection;
 let joinedEventsCollection;
 let connectionPromise;
 
-/**
- * Events in the database may be stored with a string _id (seeded data)
- * or an ObjectId _id (created through the API). Build an _id match
- * clause that matches either representation.
- */
 function eventIdFilter(id) {
   return ObjectId.isValid(id)
     ? { $in: [new ObjectId(id), id] }
@@ -292,8 +288,6 @@ app.post('/join-events', verifyApi, async (req, res) => {
 
     await joinedEventsCollection.insertOne({
       userEmail: email,
-      // Store the event's actual _id (string or ObjectId) so future
-      // lookups and deletions always match the event document.
       eventId: event._id,
       joinedAt: new Date(),
     })
