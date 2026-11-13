@@ -9,8 +9,20 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 const app = express();
 const port = process.env.PORT || 5000;
 
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+].filter(Boolean).map(origin => origin.replace(/\/$/, ''));
+
 app.use(cors({
-  origin: process.env.CLIENT_URL,
+  origin(origin, callback) {
+    // Allow requests with no Origin header (server-to-server, curl, same-origin)
+    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+      return callback(null, true);
+    }
+    callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -44,6 +56,17 @@ const client = new MongoClient(process.env.MONGODB_URL);
 let eventsCollection;
 let joinedEventsCollection;
 let connectionPromise;
+
+/**
+ * Events in the database may be stored with a string _id (seeded data)
+ * or an ObjectId _id (created through the API). Build an _id match
+ * clause that matches either representation.
+ */
+function eventIdFilter(id) {
+  return ObjectId.isValid(id)
+    ? { $in: [new ObjectId(id), id] }
+    : { _id: id };
+}
 
 async function connectToMongoDB() {
     if (!connectionPromise) {
@@ -126,9 +149,37 @@ const verifyApi = async (req, res, next) => {
 
 app.get('/events', async (req, res) => {
   try {
+    const { category, search, sort } = req.query;
+
+    const query = {};
+
+    if (category && category !== 'All') {
+      query.category = category;
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(
+        String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        'i'
+      );
+      query.$or = [
+        { title: searchRegex },
+        { location: searchRegex },
+        { description: searchRegex },
+        { category: searchRegex },
+      ];
+    }
+
+    let sortStage = { createdAt: -1 };
+    if (sort === 'soonest') {
+      sortStage = { dateISO: 1 };
+    } else if (sort === 'popular') {
+      sortStage = { volunteerCount: -1 };
+    }
+
     const events = await eventsCollection
-      .find()
-      .sort({ createdAt: -1 })
+      .find(query)
+      .sort(sortStage)
       .toArray();
 
     res.send(events);
@@ -139,6 +190,32 @@ app.get('/events', async (req, res) => {
       message: 'Failed to get events',
     })
 
+  }
+});
+
+app.get('/events/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: 'Invalid event ID' });
+    }
+
+    const event = await eventsCollection.findOne({
+      _id: eventIdFilter(id),
+    });
+
+    if (!event) {
+      return res.status(404).send({ message: 'Event not found' });
+    }
+
+    res.send(event);
+  } catch (error) {
+    console.error('Get Event Error:', error);
+
+    res.status(500).send({
+      message: 'Failed to get event',
+    });
   }
 });
 
@@ -192,9 +269,8 @@ app.post('/join-events', verifyApi, async (req, res) => {
       })
     }
 
-    const objectEventId = new ObjectId(eventId);
     const event = await eventsCollection.findOne({
-      _id: objectEventId,
+      _id: eventIdFilter(eventId),
     });
 
     if (!event) {
@@ -205,7 +281,7 @@ app.post('/join-events', verifyApi, async (req, res) => {
 
     const alreadyJoined = await joinedEventsCollection.findOne({
       userEmail: email,
-      eventId: objectEventId,
+      eventId: event._id,
     });
 
     if (alreadyJoined) {
@@ -216,12 +292,14 @@ app.post('/join-events', verifyApi, async (req, res) => {
 
     await joinedEventsCollection.insertOne({
       userEmail: email,
-      eventId: objectEventId,
+      // Store the event's actual _id (string or ObjectId) so future
+      // lookups and deletions always match the event document.
+      eventId: event._id,
       joinedAt: new Date(),
     })
 
     await eventsCollection.updateOne(
-      { _id: objectEventId },
+      { _id: event._id },
       { $inc: { volunteerCount: 1 } }
     );
 
@@ -307,10 +385,9 @@ app.delete('/leave-event/:id', verifyApi, async (req, res) => {
       });
     }
 
-    const eventId = new ObjectId(id);
     const result = await joinedEventsCollection.deleteOne({
       userEmail: email,
-      eventId,
+      eventId: eventIdFilter(id),
     });
 
     if (result.deletedCount === 0) {
@@ -321,7 +398,7 @@ app.delete('/leave-event/:id', verifyApi, async (req, res) => {
 
     await eventsCollection.updateOne(
       {
-        _id: eventId,
+        _id: eventIdFilter(id),
         volunteerCount: { $gt: 0 },
       },
       {
@@ -365,7 +442,7 @@ app.put('/update-event/:id', verifyApi, async (req, res) => {
       });
     }
 
-    const eventId = new ObjectId(id);
+    const eventId = eventIdFilter(id);
     const result = await eventsCollection.updateOne(
       {
         _id: eventId,
@@ -405,7 +482,7 @@ app.delete('/delete-event/:id', verifyApi, async (req, res) => {
       });
     }
 
-    const eventId = new ObjectId(id);
+    const eventId = eventIdFilter(id);
     const result = await eventsCollection.deleteOne({
       _id: eventId,
       organizerEmail: req.user.email,
@@ -418,7 +495,7 @@ app.delete('/delete-event/:id', verifyApi, async (req, res) => {
     }
 
     await joinedEventsCollection.deleteMany({
-      eventId,
+      eventId: eventIdFilter(id),
     });
 
     res.send({
